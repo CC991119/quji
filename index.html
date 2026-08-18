@@ -183,8 +183,7 @@
   .day-detail .sheet .dt b{ font-size:22px; color:var(--red); font-weight:800; }
   .reset-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:12px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; }
   .clear-chat-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:78px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
-  .data-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:144px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
-  .clear-bill-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:210px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
+  .clear-bill-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:144px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
   .clear-bill-mask{ position:absolute; inset:0; background:rgba(20,16,40,.45); display:none; align-items:center; justify-content:center; z-index:55; }
   .clear-bill-mask.on{ display:flex; }
   .clear-bill-box{ width:82%; max-width:320px; background:#fff; border-radius:18px; padding:20px 18px 16px; box-shadow:0 12px 32px rgba(0,0,0,.25); text-align:center; }
@@ -194,25 +193,12 @@
   .clear-bill-box .cb{ flex:1; border:none; border-radius:10px; padding:10px 0; font-size:13px; cursor:pointer; font-weight:600; }
   .clear-bill-box .cb.cancel{ background:#F2F0FB; color:#6b6785; }
   .clear-bill-box .cb.ok{ background:linear-gradient(135deg,#FF6B6B,#FF8E8E); color:#fff; }
-  .data-mask{ position:absolute; inset:0; background:rgba(20,16,40,.45); display:none; align-items:center; justify-content:center; z-index:50; }
-  .data-mask.on{ display:flex; }
-  .data-box{ width:88%; max-width:340px; background:#fff; border-radius:18px; padding:20px 18px 16px; box-shadow:0 12px 32px rgba(0,0,0,.25); }
-  .data-box .dtitle{ font-size:16px; font-weight:700; color:#2d2a45; margin-bottom:6px; }
-  .data-box .ddesc{ font-size:12px; color:#9A95B5; line-height:1.5; margin-bottom:10px; }
-  .data-box textarea{ width:100%; height:120px; border:1px solid #e0dcef; border-radius:10px; padding:8px; font-size:10px; resize:none; font-family:monospace; word-break:break-all; box-sizing:border-box; }
-  .data-box .dbtns{ display:flex; gap:8px; margin-top:12px; }
-  .data-box .db{ flex:1; border:none; border-radius:10px; padding:10px 0; font-size:13px; cursor:pointer; font-weight:600; }
-  .data-box .db.copy{ background:#F2F0FB; color:#6b6785; }
-  .data-box .db.import{ background:linear-gradient(135deg,#FF6B6B,#FF8E8E); color:#fff; }
-  .data-box .db.close-btn{ flex:0 0 auto; padding:10px 14px; }
-  .data-box .db:active{ transform:scale(.97); }
 </style>
 </head>
 <body>
 <div class="phone">
   <button class="reset-btn" id="resetBtn" onclick="resetData()">重置数据</button>
   <button class="clear-chat-btn" id="clearChatBtn" onclick="clearChat()">清空对话</button>
-  <button class="data-btn" id="dataBtn" onclick="openDataModal()">迁移</button>
   <button class="clear-bill-btn" id="clearBillBtn" onclick="openClearBills()">清空账单</button>
   <div class="topbar">
     <div class="ava">🐱</div>
@@ -352,18 +338,6 @@
       <div class="cat-btns">
         <button class="cancel" id="catCancel">取消</button>
         <button class="ok" id="catOk">添加</button>
-      </div>
-    </div>
-  </div>
-  <div class="data-mask" id="dataMask">
-    <div class="data-box">
-      <div class="dtitle">📦 数据迁移</div>
-      <div class="ddesc">点「复制」把账单复制到剪贴板，到新链接打开此页面粘贴到框里再点「导入」即可搬家。</div>
-      <textarea id="dataArea" placeholder="导入数据时把内容粘贴到这里…"></textarea>
-      <div class="dbtns">
-        <button class="db copy" onclick="copyData()">📋 复制</button>
-        <button class="db import" onclick="importData()">📥 导入</button>
-        <button class="db copy close-btn" onclick="closeDataModal()">✕</button>
       </div>
     </div>
   </div>
@@ -576,61 +550,6 @@ function openClearBills(){
   };
 }
 function closeClearBills(){ $('#clearBillMask').classList.remove('on'); }
-
-// ===== 数据导出/导入（换链接时搬家用）=====
-function openDataModal(){
-  const data = JSON.stringify({v:1, tx:TX, cats:customCats});
-  $('#dataArea').value = data;
-  $('#dataMask').classList.add('on');
-}
-function closeDataModal(){
-  $('#dataMask').classList.remove('on');
-}
-(function(){
-  var dm=document.querySelector('#dataMask');
-  if(dm) dm.onclick=function(e){ if(e.target===dm) closeDataModal(); };
-})();
-function copyData(){
-  const area = $('#dataArea');
-  area.select();
-  area.setSelectionRange(0, area.value.length);
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(area.value).then(()=>{
-      alert('已复制！到新链接点「迁移」→粘贴到框里→点「导入」即可');
-    }).catch(()=>{
-      document.execCommand('copy');
-      alert('已复制！到新链接点「迁移」→粘贴到框里→点「导入」即可');
-    });
-  } else {
-    document.execCommand('copy');
-    alert('已复制！到新链接点「迁移」→粘贴到框里→点「导入」即可');
-  }
-}
-function importData(){
-  const val = $('#dataArea').value.trim();
-  if(!val){ alert('请把数据粘贴到框里'); return; }
-  try{
-    const obj = JSON.parse(val);
-    if(!obj || !Array.isArray(obj.tx)){ alert('数据格式不对，请检查'); return; }
-    if(!confirm('导入会替换当前所有账单数据，确定吗？\n（共 '+obj.tx.length+' 条账单）')) return;
-    TX = obj.tx;
-    TX.forEach((tx,i)=>{ if(!tx.id) tx.id = Date.now()+i; });
-    if(Array.isArray(obj.cats)){
-      customCats = obj.cats;
-      try{ localStorage.setItem('quji_cats_v1', JSON.stringify(customCats)); }catch(e){}
-      rebuildCats();
-    }
-    saveData();
-    MONTHS = buildMonthList();
-    updateMonthUI();
-    renderAll();
-    closeDataModal();
-    addMsg('ai','数据导入成功！共 '+TX.length+' 条账单 🎉');
-    switchTab('chat');
-  }catch(e){
-    alert('数据格式不对，请检查后重试');
-  }
-}
 
 const CUR_MONTH='2026-08';
 let viewMonth=CUR_MONTH;
@@ -1166,7 +1085,6 @@ function switchTab(p){
   $('#inputBar').classList.toggle('hidden',p!=='chat');
   $('#resetBtn').style.display=p==='chat'?'block':'none';
   $('#clearChatBtn').style.display=p==='chat'?'block':'none';
-  $('#dataBtn').style.display=p==='chat'?'block':'none';
   $('#clearBillBtn').style.display=p==='chat'?'block':'none';
   $('#addFab').style.display=p==='chat'?'none':'flex';
   if(p==='chat'){ setTimeout(()=>{ chatList.scrollTop=chatList.scrollHeight; },50); }
