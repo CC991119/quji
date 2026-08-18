@@ -184,6 +184,16 @@
   .reset-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:12px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; }
   .clear-chat-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:78px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
   .data-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:144px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
+  .clear-bill-btn{ position:fixed; top:calc(8px + var(--safe-top)); right:210px; z-index:60; background:rgba(255,255,255,.8); border:1px solid #e0dcef; border-radius:20px; padding:4px 10px; font-size:10px; color:#9A95B5; display:none; }
+  .clear-bill-mask{ position:absolute; inset:0; background:rgba(20,16,40,.45); display:none; align-items:center; justify-content:center; z-index:55; }
+  .clear-bill-mask.on{ display:flex; }
+  .clear-bill-box{ width:82%; max-width:320px; background:#fff; border-radius:18px; padding:20px 18px 16px; box-shadow:0 12px 32px rgba(0,0,0,.25); text-align:center; }
+  .clear-bill-box .cbtitle{ font-size:16px; font-weight:700; color:#2d2a45; margin-bottom:12px; }
+  .clear-bill-box select{ width:100%; padding:10px; border:1px solid #e0dcef; border-radius:10px; font-size:14px; margin-bottom:14px; background:#fff; }
+  .clear-bill-box .cbbtns{ display:flex; gap:8px; }
+  .clear-bill-box .cb{ flex:1; border:none; border-radius:10px; padding:10px 0; font-size:13px; cursor:pointer; font-weight:600; }
+  .clear-bill-box .cb.cancel{ background:#F2F0FB; color:#6b6785; }
+  .clear-bill-box .cb.ok{ background:linear-gradient(135deg,#FF6B6B,#FF8E8E); color:#fff; }
   .data-mask{ position:absolute; inset:0; background:rgba(20,16,40,.45); display:none; align-items:center; justify-content:center; z-index:50; }
   .data-mask.on{ display:flex; }
   .data-box{ width:88%; max-width:340px; background:#fff; border-radius:18px; padding:20px 18px 16px; box-shadow:0 12px 32px rgba(0,0,0,.25); }
@@ -203,6 +213,7 @@
   <button class="reset-btn" id="resetBtn" onclick="resetData()">重置数据</button>
   <button class="clear-chat-btn" id="clearChatBtn" onclick="clearChat()">清空对话</button>
   <button class="data-btn" id="dataBtn" onclick="openDataModal()">迁移</button>
+  <button class="clear-bill-btn" id="clearBillBtn" onclick="openClearBills()">清空账单</button>
   <div class="topbar">
     <div class="ava">🐱</div>
     <div><div class="t1" id="topTitle">小记 · 记账搭子</div><div class="t2" id="topSub">在线 · 记账唠嗑都行</div></div>
@@ -285,6 +296,16 @@
       <div class="cbtns">
         <button class="cb cancel" id="confirmCancel">取消</button>
         <button class="cb ok" id="confirmOk">删除</button>
+      </div>
+    </div>
+  </div>
+  <div class="clear-bill-mask" id="clearBillMask" onclick="if(event.target===this)closeClearBills()">
+    <div class="clear-bill-box">
+      <div class="cbtitle">清空某月账单</div>
+      <select id="billMonthSel"></select>
+      <div class="cbbtns">
+        <button class="cb cancel" onclick="closeClearBills()">取消</button>
+        <button class="cb ok" id="clearBillOk">删除</button>
       </div>
     </div>
   </div>
@@ -524,6 +545,37 @@ function clearChat(){
     chatList.scrollTop=chatList.scrollHeight;
   }
 }
+
+// 清空某月账单（不碰对话记录、不碰类目）
+function openClearBills(){
+  const months=[...new Set(TX.map(t=>t.month))].sort().reverse();
+  const sel=$('#billMonthSel');
+  if(months.length===0){
+    alert('当前没有任何账单记录。');
+    return;
+  }
+  sel.innerHTML=months.map(m=>{
+    const [y,mm]=m.split('-');
+    const cnt=TX.filter(t=>t.month===m).length;
+    return '<option value="'+m+'">'+y+'年'+parseInt(mm,10)+'月（'+cnt+'笔）</option>';
+  }).join('');
+  $('#clearBillMask').classList.add('on');
+  $('#clearBillOk').onclick=()=>{
+    const m=sel.value;
+    if(!m) return;
+    const [y,mm]=m.split('-');
+    const cnt=TX.filter(t=>t.month===m).length;
+    if(confirm('确定删除 '+y+'年'+parseInt(mm,10)+'月 的 '+cnt+' 笔账单吗？\n此操作不可恢复，不影响其他月份和对话记录。')){
+      TX=TX.filter(t=>t.month!==m);
+      saveData();
+      renderAll();
+      closeClearBills();
+      addMsg('ai','已删除 '+y+'年'+parseInt(mm,10)+'月 的 '+cnt+' 笔账单 ✅ 其他数据都还在。');
+      chatList.scrollTop=chatList.scrollHeight;
+    }
+  };
+}
+function closeClearBills(){ $('#clearBillMask').classList.remove('on'); }
 
 // ===== 数据导出/导入（换链接时搬家用）=====
 function openDataModal(){
@@ -1115,6 +1167,7 @@ function switchTab(p){
   $('#resetBtn').style.display=p==='chat'?'block':'none';
   $('#clearChatBtn').style.display=p==='chat'?'block':'none';
   $('#dataBtn').style.display=p==='chat'?'block':'none';
+  $('#clearBillBtn').style.display=p==='chat'?'block':'none';
   $('#addFab').style.display=p==='chat'?'none':'flex';
   if(p==='chat'){ setTimeout(()=>{ chatList.scrollTop=chatList.scrollHeight; },50); }
   if(p!=='chat')renderAll();
