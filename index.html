@@ -516,7 +516,7 @@ function clearChat(){
     localStorage.removeItem(CHAT_KEY);
     document.getElementById('chatList').innerHTML='';
     addMsg('ai','对话已清空 🧹 你的账单还在，随时继续记～');
-    chatList.scrollTop=chatList.scrollHeight;
+    scrollChatBottom();
   }
 }
 
@@ -545,7 +545,7 @@ function openClearBills(){
       renderAll();
       closeClearBills();
       addMsg('ai','已删除 '+y+'年'+parseInt(mm,10)+'月 的 '+cnt+' 笔账单 ✅ 其他数据都还在。');
-      chatList.scrollTop=chatList.scrollHeight;
+      scrollChatBottom();
     }
   };
 }
@@ -671,11 +671,17 @@ function buildMonthList(){
 let MONTHS=buildMonthList();
 
 const chatList=$('#chatList');
+// 真正的滚动容器是 .page（#page-chat），#chatList 本身不滚动
+function scrollChatBottom(){
+  const page=document.getElementById('page-chat');
+  if(page) page.scrollTop=page.scrollHeight;
+}
 function addMsg(who,html,save){
   const d=document.createElement('div'); d.className='msg '+who;
   const ava=who==='ai'?'<div class="mava">🐱</div>':'';
   d.innerHTML=ava+'<div class="bubble">'+html+'</div>';
-  chatList.appendChild(d); chatList.scrollTop=chatList.scrollHeight;
+  chatList.appendChild(d); scrollChatBottom();
+  requestAnimationFrame(()=>{ scrollChatBottom(); }); // 兜底 SVG/图片异步撑高
   if(save!==false){
     const chat=loadChat();
     chat.push({who,html,id:Date.now()+Math.random()});
@@ -686,7 +692,9 @@ function addMsg(who,html,save){
 function typing(){
   const d=document.createElement('div'); d.className='msg ai';
   d.innerHTML='<div class="mava">🐱</div><div class="typing"><span></span><span></span><span></span></div>';
-  chatList.appendChild(d); chatList.scrollTop=chatList.scrollHeight; return d;
+  chatList.appendChild(d); scrollChatBottom();
+  requestAnimationFrame(()=>{ scrollChatBottom(); });
+  return d;
 }
 
 // ===== 对话引擎 =====
@@ -779,7 +787,7 @@ function handleInput(text){
   const t=typing();
   const delay=text.length>15?1100:700;
   setTimeout(()=>{
-    t.remove(); chatList.scrollTop=chatList.scrollHeight;
+    t.remove(); scrollChatBottom();
     if(/删除|删掉|去掉|移除|撤销/.test(text)){
       const todayTx=TX.filter(x=>x.month===CUR_MONTH&&x.day===new Date().getDate());
       if(/最后|上一笔|最近|刚记|那笔/.test(text)&&todayTx.length>0){
@@ -1087,7 +1095,7 @@ function switchTab(p){
   $('#clearChatBtn').style.display=p==='chat'?'block':'none';
   $('#clearBillBtn').style.display=p==='chat'?'block':'none';
   $('#addFab').style.display=p==='chat'?'none':'flex';
-  if(p==='chat'){ setTimeout(()=>{ chatList.scrollTop=chatList.scrollHeight; },50); }
+  if(p==='chat'){ setTimeout(()=>{ scrollChatBottom(); },50); }
   if(p!=='chat')renderAll();
 }
 document.querySelectorAll('.nav .tab').forEach(t=>{t.onclick=()=>switchTab(t.dataset.p);});
@@ -1189,7 +1197,7 @@ if(savedChat&&savedChat.length>0){
     d.innerHTML=ava+'<div class="bubble">'+m.html+'</div>';
     chatList.appendChild(d);
   });
-  setTimeout(()=>{ chatList.scrollTop=chatList.scrollHeight; },100);
+  setTimeout(()=>{ scrollChatBottom(); },100);
 } else {
   addMsg('ai','嗨，我是你的记账搭子小记 🐱 记账带上数字就行，想唠嗑也随时～');
   addMsg('ai','试试下方按钮：记一笔、讲个笑话、查账单都行 😎');
