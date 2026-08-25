@@ -672,16 +672,36 @@ let MONTHS=buildMonthList();
 
 const chatList=$('#chatList');
 // 真正的滚动容器是 .page（#page-chat），#chatList 本身不滚动
+let autoScroll=true; // 是否保持贴底：用户手动上翻时置 false，发消息/切到聊天页时恢复
 function scrollChatBottom(){
+  if(!autoScroll) return;
   const page=document.getElementById('page-chat');
-  if(page) page.scrollTop=page.scrollHeight;
+  if(!page) return;
+  // 双 rAF：等浏览器完成本轮布局/绘制后再贴底，规避字体/SVG 异步撑高导致的"滚不到底"
+  requestAnimationFrame(()=>{
+    page.scrollTop=page.scrollHeight;
+    requestAnimationFrame(()=>{ page.scrollTop=page.scrollHeight; });
+  });
 }
+// 监听聊天内容高度变化：字体加载、SVG 图表渲染、图片解码等会让内容在滚动后继续长高，
+// 此时自动续滚到底，彻底解决"进去时停在中间"的问题
+if(window.ResizeObserver){
+  const _ro=new ResizeObserver(()=>{
+    const page=document.getElementById('page-chat');
+    if(page && page.classList.contains('active')) scrollChatBottom();
+  });
+  _ro.observe(chatList);
+  const _chips=document.getElementById('chips'); if(_chips) _ro.observe(_chips);
+}
+// 用户手动滚动：离开底部则取消自动贴底（便于看历史），回到底部附近恢复
+document.getElementById('page-chat').addEventListener('scroll',function(){
+  autoScroll = (this.scrollHeight - this.scrollTop - this.clientHeight) < 60;
+});
 function addMsg(who,html,save){
   const d=document.createElement('div'); d.className='msg '+who;
   const ava=who==='ai'?'<div class="mava">🐱</div>':'';
   d.innerHTML=ava+'<div class="bubble">'+html+'</div>';
   chatList.appendChild(d); scrollChatBottom();
-  requestAnimationFrame(()=>{ scrollChatBottom(); }); // 兜底 SVG/图片异步撑高
   if(save!==false){
     const chat=loadChat();
     chat.push({who,html,id:Date.now()+Math.random()});
@@ -693,7 +713,6 @@ function typing(){
   const d=document.createElement('div'); d.className='msg ai';
   d.innerHTML='<div class="mava">🐱</div><div class="typing"><span></span><span></span><span></span></div>';
   chatList.appendChild(d); scrollChatBottom();
-  requestAnimationFrame(()=>{ scrollChatBottom(); });
   return d;
 }
 
@@ -782,6 +801,7 @@ function smartReply(text){
 }
 function handleInput(text){
   if(!text.trim()) return;
+  autoScroll=true; // 自己发消息 → 重新贴底
   addMsg('me',text.replace(/</g,'&lt;'));
   text=normalizeCnNums(text); // 中文数字→阿拉伯数字，方便后续解析
   const t=typing();
@@ -1095,7 +1115,12 @@ function switchTab(p){
   $('#clearChatBtn').style.display=p==='chat'?'block':'none';
   $('#clearBillBtn').style.display=p==='chat'?'block':'none';
   $('#addFab').style.display=p==='chat'?'none':'flex';
-  if(p==='chat'){ setTimeout(()=>{ scrollChatBottom(); },50); }
+  if(p==='chat'){
+    autoScroll=true;
+    scrollChatBottom();
+    setTimeout(()=>{ scrollChatBottom(); },50);
+    setTimeout(()=>{ scrollChatBottom(); },300);
+  }
   if(p!=='chat')renderAll();
 }
 document.querySelectorAll('.nav .tab').forEach(t=>{t.onclick=()=>switchTab(t.dataset.p);});
@@ -1197,7 +1222,11 @@ if(savedChat&&savedChat.length>0){
     d.innerHTML=ava+'<div class="bubble">'+m.html+'</div>';
     chatList.appendChild(d);
   });
+  autoScroll=true;
+  scrollChatBottom();
   setTimeout(()=>{ scrollChatBottom(); },100);
+  setTimeout(()=>{ scrollChatBottom(); },400);
+  window.addEventListener('load',()=>{ scrollChatBottom(); }); // 字体/资源加载完再校正一次
 } else {
   addMsg('ai','嗨，我是你的记账搭子小记 🐱 记账带上数字就行，想唠嗑也随时～');
   addMsg('ai','试试下方按钮：记一笔、讲个笑话、查账单都行 😎');
