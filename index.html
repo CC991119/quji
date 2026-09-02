@@ -218,7 +218,7 @@
     <div class="page" id="page-overview">
       <div class="monthbar">
         <button class="mb" id="mPrev">‹</button>
-        <div class="ml"><span id="mLabel">2026年8月</span><b class="cur" id="mBadge">本月</b></div>
+        <div class="ml"><span id="mLabel">本月</span><b class="cur" id="mBadge">本月</b></div>
         <button class="mb" id="mNext">›</button>
       </div>
       <div class="sumcard">
@@ -247,11 +247,11 @@
     </div>
     <div class="page" id="page-trend">
       <div class="panel">
-        <h3>📈 年度支出趋势 <span class="hint">2025 vs 2026</span></h3>
+        <h3>📈 年度支出趋势 <span class="hint" id="trendHint">同比</span></h3>
         <svg class="trend-line" id="trend" viewBox="0 0 320 170"></svg>
         <div class="cmp">
-          <div class="c"><b id="cmpY">¥0</b><span>2025 全年</span></div>
-          <div class="c"><b class="r" id="cmpT">¥0</b><span>2026 至今</span></div>
+          <div class="c"><b id="cmpY">¥0</b><span id="cmpYLbl">去年全年</span></div>
+          <div class="c"><b class="r" id="cmpT">¥0</b><span id="cmpTLbl">今年至今</span></div>
           <div class="c"><b id="cmpD">0%</b><span>同比</span></div>
         </div>
       </div>
@@ -261,7 +261,7 @@
         <div class="egg">💡 订阅类自动扣费 3 笔，本月已花 ¥59</div>
         <div class="egg">⏰ 距月度预算 3000 还剩 <b id="budLeft">¥0</b></div>
       </div>
-      <div class="panel fun"><div class="face">🎉</div><p id="yearEgg">今年你最"豪横"的一天是 <b>8月12日</b>，单日花了 ¥468；最自律的是 <b>8月3日</b>，只花了 ¥36。继续保持节奏！</p></div>
+      <div class="panel fun"><div class="face">🎉</div><p id="yearEgg">还在统计今年的消费高峰，多记几笔就有啦～</p></div>
     </div>
   </div>
   <div class="day-detail" id="dayDetail">
@@ -492,6 +492,28 @@ if(!TX){
 // 给每条交易添加唯一ID
 TX.forEach((tx,i)=>{ if(!tx.id) tx.id = Date.now()+i; });
 
+// ===== 一次性数据修复：早期版本把"当前月份"写死成 2026-08，
+// 导致之后每月手动记的账都被塞进 2026年8月。此处按记录创建时间校正月份。=====
+const FIX_KEY='quji_monthfix_v1';
+let MONTH_FIX_LOG=[];
+(function fixStaleMonth(){
+  try{ if(localStorage.getItem(FIX_KEY)) return; }catch(e){ return; }
+  const STALE='2026-08';
+  TX.forEach(tx=>{
+    if(!tx.createdAt) return;              // 示例数据没有 createdAt，跳过
+    if(tx.month!==STALE) return;           // 只处理被错标到 2026-08 的
+    const c=new Date(tx.createdAt);
+    if(isNaN(c.getTime())) return;
+    const realMonth=`${c.getFullYear()}-${String(c.getMonth()+1).padStart(2,'0')}`;
+    if(realMonth===STALE) return;          // 本来就是8月记的，正确
+    if(tx.day!==c.getDate()) return;       // day 与创建日不符 → 是手动补记的历史账，别动
+    MONTH_FIX_LOG.push({note:tx.note,amt:tx.amt,type:tx.type,from:`${STALE}-${tx.day}`,to:`${realMonth}-${tx.day}`});
+    tx.month=realMonth;
+  });
+  if(MONTH_FIX_LOG.length>0) saveData();
+  try{ localStorage.setItem(FIX_KEY,'1'); }catch(e){}
+})();
+
 function resetData(){
   if(confirm('确定要重置所有数据吗？这将恢复示例数据，你自己的记账记录将被清除。')){
     localStorage.removeItem(STORAGE_KEY);
@@ -551,8 +573,20 @@ function openClearBills(){
 }
 function closeClearBills(){ $('#clearBillMask').classList.remove('on'); }
 
-const CUR_MONTH='2026-08';
+// ===== 当前月份：跟随系统时间实时计算，每月自动滚动（不再写死）=====
+function ymOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+let CUR_MONTH=ymOf(new Date());
 let viewMonth=CUR_MONTH;
+// 跨月自检：页面长时间挂在后台不刷新时，到了新月份自动切过去
+function refreshCurMonth(){
+  const now=ymOf(new Date());
+  if(now===CUR_MONTH) return false;
+  const wasViewingCur=(viewMonth===CUR_MONTH);
+  CUR_MONTH=now;
+  if(wasViewingCur) viewMonth=CUR_MONTH;
+  MONTHS=buildMonthList();
+  return true;
+}
 
 const $ = s=>document.querySelector(s);
 const fmt = n=>'¥'+Math.round(n).toLocaleString('zh-CN');
@@ -762,7 +796,11 @@ function smartReply(text){
   }
   const monthMatch=text.match(/(\d{1,2})\s*[月]/);
   if(monthMatch&&/花了|多少|账单|支出|消费|情况|怎么样/.test(text)){
-    const mNum=parseInt(monthMatch[1]);const year=mNum>=9?'2025':'2026';const targetMonth=`${year}-${String(mNum).padStart(2,'0')}`;
+    const mNum=parseInt(monthMatch[1]);
+    // 年份不再写死：≤当前月算今年，超过当前月算去年（方便查"去年12月"）
+    const curY=parseInt(CUR_MONTH.split('-')[0]),curM=parseInt(CUR_MONTH.split('-')[1]);
+    const year=mNum<=curM?curY:curY-1;
+    const targetMonth=`${year}-${String(mNum).padStart(2,'0')}`;
     if(MONTHS.includes(targetMonth)){
       const exp=monthExp(targetMonth),inc=monthInc(targetMonth),topCat=Object.entries(catSums(targetMonth)).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1])[0];
       let msg=`📅 ${monthLabel(targetMonth)}账单：<br>💸 支出 <b>${fmt(exp)}</b> ｜ 💰 收入 ${fmt(inc)} ｜ 📦 结余 ${fmt(inc-exp)}`;
@@ -1062,27 +1100,33 @@ function cancelEdit(idx){
   document.addEventListener('mouseup',onEnd);
 })();
 function renderTrend(){
-  const y2025=[],y2026=[];
+  // 年份跟随系统时间：今年 vs 去年
+  const CUR_YEAR=parseInt(CUR_MONTH.split('-')[0]);
+  const PREV_YEAR=CUR_YEAR-1;
+  const yPrev=[],yCur=[];
   for(let m=1;m<=12;m++){
-    const m25=`2025-${String(m).padStart(2,'0')}`,m26=`2026-${String(m).padStart(2,'0')}`;
-    y2025.push(TX.filter(x=>x.type==='expense'&&x.month===m25).reduce((s,x)=>s+x.amt,0));
-    y2026.push(TX.filter(x=>x.type==='expense'&&x.month===m26).reduce((s,x)=>s+x.amt,0));
+    const mp=`${PREV_YEAR}-${String(m).padStart(2,'0')}`,mc=`${CUR_YEAR}-${String(m).padStart(2,'0')}`;
+    yPrev.push(TX.filter(x=>x.type==='expense'&&x.month===mp).reduce((s,x)=>s+x.amt,0));
+    yCur.push(TX.filter(x=>x.type==='expense'&&x.month===mc).reduce((s,x)=>s+x.amt,0));
   }
-  const sum25=y2025.reduce((a,b)=>a+b,0),sum26=y2026.reduce((a,b)=>a+b,0);
-  const months26=y2026.filter(v=>v>0).length;
+  const sumPrev=yPrev.reduce((a,b)=>a+b,0),sumCur=yCur.reduce((a,b)=>a+b,0);
+  const monthsCur=yCur.filter(v=>v>0).length;
   let delta=0;
-  if(sum25>0&&months26>0){delta=Math.round((sum26/months26)/(sum25/12)*100-100);}
-  $('#cmpY').textContent=fmt(sum25);$('#cmpT').textContent=fmt(sum26);$('#cmpD').textContent=(delta>0?'+':'')+delta+'%';
-  const W=320,H=150,pad=20;const max=Math.max(...y2025,...y2026,1);
+  if(sumPrev>0&&monthsCur>0){delta=Math.round((sumCur/monthsCur)/(sumPrev/12)*100-100);}
+  $('#trendHint').textContent=`${PREV_YEAR} vs ${CUR_YEAR}`;
+  $('#cmpYLbl').textContent=`${PREV_YEAR} 全年`;
+  $('#cmpTLbl').textContent=`${CUR_YEAR} 至今`;
+  $('#cmpY').textContent=fmt(sumPrev);$('#cmpT').textContent=fmt(sumCur);$('#cmpD').textContent=(delta>0?'+':'')+delta+'%';
+  const W=320,H=150,pad=20;const max=Math.max(...yPrev,...yCur,1);
   const px=i=>pad+i*(W-2*pad)/11;const py=v=>H-pad-(v/max)*(H-2*pad);
-  let line25='',line26='';
-  y2025.forEach((v,i)=>line25+=`${i===0?'M':'L'}${px(i).toFixed(1)} ${py(v).toFixed(1)} `);
-  y2026.forEach((v,i)=>line26+=`${i===0?'M':'L'}${px(i).toFixed(1)} ${py(v).toFixed(1)} `);
-  let dots26='';y2026.forEach((v,i)=>{if(v>0)dots26+=`<circle cx="${px(i)}" cy="${py(v)}" r="3" fill="#FF5A5F"></circle>`;});
+  let linePrev='',lineCur='';
+  yPrev.forEach((v,i)=>linePrev+=`${i===0?'M':'L'}${px(i).toFixed(1)} ${py(v).toFixed(1)} `);
+  yCur.forEach((v,i)=>lineCur+=`${i===0?'M':'L'}${px(i).toFixed(1)} ${py(v).toFixed(1)} `);
+  let dotsCur='';yCur.forEach((v,i)=>{if(v>0)dotsCur+=`<circle cx="${px(i)}" cy="${py(v)}" r="3" fill="#FF5A5F"></circle>`;});
   let axis='';for(let i=1;i<=12;i++)axis+=`<text x="${px(i-1)}" y="${H-4}" font-size="8" fill="#9A95B5" text-anchor="middle">${i}</text>`;
-  $('#trend').innerHTML=`<path d="${line25}" fill="none" stroke="#C9C2E8" stroke-width="2.5" stroke-dasharray="5 4"></path><path d="${line26}" fill="none" stroke="#FF5A5F" stroke-width="3"></path>${dots26}${axis}<text x="${pad}" y="14" font-size="9" fill="#C9C2E8">— 2025</text><text x="${pad+40}" y="14" font-size="9" fill="#FF5A5F">— 2026</text>`;
+  $('#trend').innerHTML=`<path d="${linePrev}" fill="none" stroke="#C9C2E8" stroke-width="2.5" stroke-dasharray="5 4"></path><path d="${lineCur}" fill="none" stroke="#FF5A5F" stroke-width="3"></path>${dotsCur}${axis}<text x="${pad}" y="14" font-size="9" fill="#C9C2E8">— ${PREV_YEAR}</text><text x="${pad+40}" y="14" font-size="9" fill="#FF5A5F">— ${CUR_YEAR}</text>`;
   // 年度彩蛋
-  const yearTx=TX.filter(x=>x.type==='expense'&&x.month.startsWith('2026'));
+  const yearTx=TX.filter(x=>x.type==='expense'&&x.month.startsWith(String(CUR_YEAR)));
   if(yearTx.length>0){
     const dayMap={};
     yearTx.forEach(x=>{const key=`${x.month}-${x.day}`;dayMap[key]=(dayMap[key]||0)+x.amt;});
@@ -1233,6 +1277,22 @@ if(savedChat&&savedChat.length>0){
 }
 
 updateMonthUI();renderAll();
+
+// 若刚才做过月份修复，进来提示一下修好了哪几笔
+if(MONTH_FIX_LOG.length>0){
+  const lines=MONTH_FIX_LOG.map(f=>{
+    const to=f.to.split('-');
+    return `${f.note} ${f.type==='income'?'+':'-'}${fmt(f.amt)} → ${parseInt(to[1])}月${parseInt(to[2])}日`;
+  }).join('<br>');
+  addMsg('ai',`🔧 修好一个日期 bug：之前月份没跟着时间走，把你 <b>${MONTH_FIX_LOG.length} 笔</b>账错记到了 8 月，现在已归位：<br>${lines}<br><span style="font-size:11px;color:#9A95B5">以后每到新月份会自动切换，不用再管啦</span>`);
+}
+
+// 跨月自检：页面从后台切回前台时，检查是否已进入新月份
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && refreshCurMonth()){ updateMonthUI(); renderAll(); }
+});
+// 兜底：每 10 分钟检查一次（跨月瞬间也能自动切）
+setInterval(()=>{ if(refreshCurMonth()){ updateMonthUI(); renderAll(); } },600000);
 </script>
 </body>
 </html>
