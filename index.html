@@ -56,6 +56,23 @@
   .msg.me .bubble{ background:var(--chat-me); color:#fff; border-bottom-right-radius:5px; }
   .bubble .tag{ display:inline-block; background:#fff; color:var(--brand); border-radius:6px; padding:1px 6px; font-size:12px; margin:2px 4px 0 0; font-weight:600; }
   .msg.me .bubble .tag{ background:#ffffffcc; }
+  /* 长按删除对话记录 */
+  .msg{ -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; transition:opacity .18s ease, transform .18s ease; }
+  .msg.pressing{ transform:scale(.96); opacity:.6; }
+  .msg.removing{ opacity:0; transform:translateX(24px); }
+  .del-mask{ position:absolute; inset:0; background:rgba(20,16,40,.45); display:none; align-items:center; justify-content:center; z-index:45; }
+  .del-mask.on{ display:flex; }
+  .del-box{ width:82%; max-width:320px; background:#fff; border-radius:18px; padding:20px; box-shadow:0 12px 32px rgba(0,0,0,.25); }
+  .del-box .t{ font-size:15px; font-weight:700; color:#2d2a45; margin-bottom:10px; text-align:center; }
+  .del-quote{ background:#f6f4fb; border-radius:10px; padding:10px 12px; font-size:12.5px; color:#5a5578; line-height:1.55; max-height:88px; overflow:auto; word-break:break-all; margin-bottom:12px; }
+  .del-tip{ font-size:12px; color:#8b86a8; line-height:1.6; text-align:center; margin-bottom:16px; }
+  .del-tip b{ color:#4a4570; }
+  .del-btns{ display:flex; gap:10px; }
+  .del-btns button{ flex:1; border:none; border-radius:12px; padding:11px 0; font-size:14px; font-weight:600; cursor:pointer; }
+  .del-btns .cancel{ background:#f1eef9; color:#6b6690; }
+  .del-btns .ok{ background:#FF5A5F; color:#fff; }
+  .quji-toast{ position:absolute; left:50%; bottom:96px; transform:translateX(-50%) translateY(10px); background:rgba(45,42,69,.92); color:#fff; font-size:12.5px; padding:9px 16px; border-radius:20px; opacity:0; transition:opacity .22s, transform .22s; z-index:60; pointer-events:none; white-space:nowrap; }
+  .quji-toast.on{ opacity:1; transform:translateX(-50%) translateY(0); }
   .chips{ display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 14px; }
   .chip{ background:#fff; border:1px solid #e7e2ff; color:var(--brand); padding:7px 12px; border-radius:18px; font-size:13px; cursor:pointer; box-shadow:0 2px 6px rgba(124,92,255,.08); }
   .chip:active{ transform:scale(.96); }
@@ -341,6 +358,18 @@
       </div>
     </div>
   </div>
+  <div class="del-mask" id="delMask">
+    <div class="del-box">
+      <div class="t">删除这条对话？</div>
+      <div class="del-quote" id="delQuote"></div>
+      <div class="del-tip">只清理聊天记录，<b>账单里的消费不会受影响</b></div>
+      <div class="del-btns">
+        <button class="cancel" id="delCancel">取消</button>
+        <button class="ok" id="delOk">删除</button>
+      </div>
+    </div>
+  </div>
+  <div class="quji-toast" id="qujiToast"></div>
   <div class="nav">
     <div class="tab on" data-p="chat"><div class="ic">💬</div>聊天</div>
     <div class="tab" data-p="overview"><div class="ic">📊</div>概览</div>
@@ -772,20 +801,109 @@ function addMsg(who,html,save){
   const d=document.createElement('div'); d.className='msg '+who;
   const ava=who==='ai'?'<div class="mava">🐱</div>':'';
   d.innerHTML=ava+'<div class="bubble">'+html+'</div>';
+  const mid=String(Date.now())+'_'+Math.random().toString(36).slice(2,8);
+  d.dataset.mid=mid;
   chatList.appendChild(d); scrollChatBottom();
   if(save!==false){
     const chat=loadChat();
-    chat.push({who,html,id:Date.now()+Math.random()});
+    chat.push({who,html,id:mid});
     saveChat(chat);
   }
   return d;
 }
 function typing(){
-  const d=document.createElement('div'); d.className='msg ai';
+  const d=document.createElement('div'); d.className='msg ai msg-typing';
   d.innerHTML='<div class="mava">🐱</div><div class="typing"><span></span><span></span><span></span></div>';
   chatList.appendChild(d); scrollChatBottom();
   return d;
 }
+
+// ===== 长按删除对话记录（只删聊天气泡，账单 TX 完全不动）=====
+let _lpTimer=null, _lpEl=null, _lpStart=null, _delTarget=null, _toastTimer=null;
+
+function showToast(txt){
+  const t=$('#qujiToast'); if(!t) return;
+  t.textContent=txt; t.classList.add('on');
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>t.classList.remove('on'),1800);
+}
+
+function openDelMsg(msg){
+  if(!msg) return;
+  const bubble=msg.querySelector('.bubble');
+  if(!bubble) return;               // 打字动画等占位气泡不参与删除
+  _delTarget=msg;
+  const txt=(bubble.innerText||'').replace(/\s+/g,' ').trim();
+  $('#delQuote').textContent = txt.length>100 ? txt.slice(0,100)+'…' : (txt||'（空消息）');
+  $('#delMask').classList.add('on');
+}
+
+function closeDelMsg(){ $('#delMask').classList.remove('on'); _delTarget=null; }
+
+function doDelMsg(){
+  const msg=_delTarget;
+  $('#delMask').classList.remove('on');
+  _delTarget=null;
+  if(!msg) return;
+  const mid=msg.dataset.mid;
+  // 关键：只从 localStorage 的聊天记录里摘掉这一条，TX（账单）不动
+  if(mid){
+    const chat=loadChat();
+    const next=chat.filter(m=>String(m.id)!==String(mid));
+    saveChat(next);
+  }
+  msg.classList.add('removing');
+  setTimeout(()=>{ msg.remove(); scrollChatBottom(); },180);
+  showToast('对话已删除，账单记录保留');
+}
+
+function bindMsgLongPress(){
+  const clear=()=>{ clearTimeout(_lpTimer); if(_lpEl){ _lpEl.classList.remove('pressing'); _lpEl=null; } _lpStart=null; };
+
+  // 移动端：按住 0.5 秒
+  chatList.addEventListener('touchstart',e=>{
+    const msg=e.target.closest('.msg');
+    if(!msg||msg.classList.contains('msg-typing')) return;
+    if(e.touches.length>1) return;
+    clearTimeout(_lpTimer);
+    _lpEl=msg;
+    _lpStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    msg.classList.add('pressing');
+    _lpTimer=setTimeout(()=>{ const m=msg; clear(); openDelMsg(m); },500);
+  },{passive:true});
+
+  chatList.addEventListener('touchmove',e=>{
+    if(!_lpStart||!e.touches[0]) return;
+    const t=e.touches[0];
+    if(Math.abs(t.clientX-_lpStart.x)>10||Math.abs(t.clientY-_lpStart.y)>10) clear();
+  },{passive:true});
+
+  chatList.addEventListener('touchend',clear);
+  chatList.addEventListener('touchcancel',clear);
+
+  // 桌面端：右键
+  chatList.addEventListener('contextmenu',e=>{
+    const msg=e.target.closest('.msg');
+    if(!msg) return;
+    e.preventDefault();
+    openDelMsg(msg);
+  });
+  // 桌面端：鼠标按住也能触发
+  chatList.addEventListener('mousedown',e=>{
+    if(e.button!==0) return;
+    const msg=e.target.closest('.msg');
+    if(!msg) return;
+    _lpEl=msg; msg.classList.add('pressing');
+    _lpTimer=setTimeout(()=>{ const m=msg; clear(); openDelMsg(m); },500);
+  });
+  chatList.addEventListener('mouseup',clear);
+  chatList.addEventListener('mouseleave',clear);
+
+  $('#delCancel').onclick=closeDelMsg;
+  $('#delOk').onclick=doDelMsg;
+  $('#delMask').onclick=e=>{ if(e.target===$('#delMask')) closeDelMsg(); };
+}
+
 
 // ===== 对话引擎 =====
 const _used={};
@@ -1301,6 +1419,7 @@ if(savedChat&&savedChat.length>0){
     const d=document.createElement('div');d.className='msg '+m.who;
     const ava=m.who==='ai'?'<div class="mava">🐱</div>':'';
     d.innerHTML=ava+'<div class="bubble">'+m.html+'</div>';
+    d.dataset.mid=String(m.id);
     chatList.appendChild(d);
   });
   autoScroll=true;
@@ -1314,6 +1433,7 @@ if(savedChat&&savedChat.length>0){
 }
 
 updateMonthUI();renderAll();
+bindMsgLongPress();
 
 // 若刚才做过月份修复，进来提示一下修好了哪几笔
 if(MONTH_FIX_LOG.length>0){
