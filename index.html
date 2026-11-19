@@ -618,7 +618,11 @@ function refreshCurMonth(){
 }
 
 const $ = s=>document.querySelector(s);
-const fmt = n=>'¥'+Math.round(n).toLocaleString('zh-CN');
+// 金额格式化：支持小数（最多两位），整数不显示 ".00"，也不做四舍五入丢弃角分
+const fmt = n=>{
+  const v=Math.round((Number(n)||0)*100)/100;
+  return '¥'+v.toLocaleString('zh-CN',{minimumFractionDigits:0,maximumFractionDigits:2});
+};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // 生成类目下拉选项；type 可指定 'expense'/'income' 以过滤；末尾追加"添加新类目"
 function catOptions(selVal, type){
@@ -660,15 +664,42 @@ function cn2num(s){
   return total+section+cur;
 }
 // 将文本中的中文数字序列转为阿拉伯数字（保护 周X/星期X 不被误转）
+// 关键：不能无脑全转，否则「零食」→「0食」、「一定」→「1定」，物品名关键词就丢了
+// 只在「明显是数字」的上下文里转：挨着钱单位、跟在花钱动作后，或本身就是「十二/三十/一百」这类多字数字
 function normalizeCnNums(text){
   const CN_CHARS='零〇一二两三四五六七八九十百千万亿';
   const wkChars='一二三四五六日天';
+  const MONEY_UNIT='块元毛角钱';
+  const MONEY_VERB='花买付充请订交收赚发';
+  const NOT_NUM=['万一','千万','万万','万分','亿万','百万'];
   let t=text.replace(/(周|星期)([一二三四五六日天])/g,(m,p1,p2)=>{
     return '__WK'+(p1==='星期'?'1':'0')+wkChars.indexOf(p2)+'__';
   });
-  t=t.replace(new RegExp('['+CN_CHARS+']+','g'),s=>{const n=cn2num(s);return n!==null?String(n):s;});
+  t=t.replace(new RegExp('['+CN_CHARS+']+','g'),(s,off,whole)=>{
+    if(NOT_NUM.includes(s)) return s;
+    const prev=whole[off-1]||'', next=whole[off+s.length]||'';
+    // 注意 prev/next 可能为空串，而 ''.includes 恒为 true，必须先判空
+    const nearMoney = (prev&&MONEY_UNIT.includes(prev)) || (next&&MONEY_UNIT.includes(next)) || (prev&&MONEY_VERB.includes(prev));
+    const looksNum  = s.length>=2 && /[十百千万亿]/.test(s);
+    if(!nearMoney && !looksNum) return s;      // 普通词里的「零/一/两」保持原样
+    const n=cn2num(s);
+    return n!==null?String(n):s;
+  });
   t=t.replace(/__WK(\d)(\d)__/g,(m,f,d)=>(f==='1'?'星期':'周')+wkChars[parseInt(d)]);
   return t;
+}
+// 口语金额 → 小数。中文里「十二块五」= 12.5 元、「五毛」= 0.5 元，不做这步会被当成两笔/取整
+function normalizeColloquialMoney(t){
+  let s=t;
+  // X块/元 Y毛/角  → X.Y （「12块5」「12块5毛」「12块5角」）
+  s=s.replace(/(\d+(?:\.\d+)?)\s*[块元]\s*([1-9])(?!\d)\s*(?:毛|角)?\s*钱?/g,(m,a,b)=>a+'.'+b);
+  // X块半 → X.5
+  s=s.replace(/(\d+(?:\.\d+)?)\s*[块元]\s*半/g,(m,a)=>a+'.5');
+  // 半块 → 0.5
+  s=s.replace(/半\s*[块元]/g,'0.5');
+  // 单独的 X毛 / X角 → 0.X（排除「X块钱」这种）
+  s=s.replace(/(^|[^\d.])([1-9])\s*(?:毛|角)(?!钱)/g,(m,p,x)=>p+'0.'+x);
+  return s;
 }
 // 判断文本是否像「物品/事项 + 金额」，用于兜住没被关键词库覆盖的说法，如「榴莲30」
 // 思路：找出文本里的数字，逐个看它上下文像不像钱，只要能确认一个就认为是在记账。
@@ -699,6 +730,23 @@ function isRecordIntent(text){
   // 序数/年龄/时间点/年份/数值提问等明显非记账，排除（去掉对「X号/X日」的误杀，否则会挡掉带日期的记账）
   if(/第\s*\d+\s*[天周次节章月]|\d+\s*岁|\d+\s*点|\d{4}\s*年|几\s*\d|体温\s*\d|重\s*\d|身高\s*\d/.test(text)) return false;
   return true;
+}
+// 判断「只说了东西、没说多少钱」，如「零食，多少钱」「榴莲多少钱」「买了个榴莲」
+// 返回物品名（命中）或 null（不是这种情形）。注意不能抢走「这个月花了多少钱」这类查账问题。
+function detectMissingAmount(text){
+  const t=String(text).replace(/[，,。.！!？?~～、\s]+/g,' ').trim();
+  if(!t) return null;
+  // 明确的查账/汇总问题，不是要记账
+  if(/本月|这个月|当月|上月|上个月|去年|今年|总共|一共|累计|合计|总额|花了多少|花多少|账单|汇总|概览|明细|支出|收入|结余|余额|存了|攒了|统计|排行|哪.*多|几笔/.test(t)) return null;
+  let name='';
+  const m=t.match(/^(.{1,12}?)\s*(?:是多少钱|是多少|多少钱|多钱|几块钱|几块|多贵|好贵)$/);
+  if(m) name=m[1].trim();
+  // 没有「多少钱」，但明显在说花销：花钱动作 + 没有数字
+  if(!name && !/\d/.test(t) && /(买|购|花|付|充|请客|订|交了|叫了|点了)/.test(t)) name=t;
+  if(!name) return null;
+  if(/\d/.test(name)) return null;                 // 已经带了金额，不是缺金额
+  if(name.length>12) return null;
+  return name;
 }
 function parseMultiTx(text){
   const results=[];
@@ -992,11 +1040,23 @@ function smartReply(text){
   if(text.length>30) return R('default',['你说了这么多我都有点感动了！但我是记账的…要不要顺便记一笔？😂','话痨模式我接住了！但说这么多不如记一笔来得实在 📝','这么长！我认真看完了。结论：你该记账了 😎','打字这么多手不累吗？不如输入"午饭28"三个字记笔账休息下 🐱','信息量好大！但我只关心一个信息：今天花了多少？💰','你真健谈！但我更想听你说"XX花了XX元"这种短句 😼']);
   return R('default',POOL.default);
 }
+// 等待用户补金额的那一笔（「零食多少钱」→ 等下一句数字）
+let _pendingItem=null;
+
 function handleInput(text){
   if(!text.trim()) return;
   autoScroll=true; // 自己发消息 → 重新贴底
   addMsg('me',text.replace(/</g,'&lt;'));
   text=normalizeCnNums(text); // 中文数字→阿拉伯数字，方便后续解析
+  text=normalizeColloquialMoney(text); // 「十二块五」→ 12.5
+  // 上一轮问过「XX多少钱」，这一轮只回了个数字 → 直接补成那一笔
+  const _bare=text.replace(/\s+/g,'').match(/^(\d+(?:\.\d+)?)(?:块钱|块|元|毛|角)?$/);
+  if(_pendingItem && Date.now()-_pendingItem.ts<5*60*1000 && _bare){
+    text=_pendingItem.name+' '+_bare[1];
+    _pendingItem=null;
+  } else if(!_bare){
+    _pendingItem=null; // 说了别的，不再等金额
+  }
   const t=typing();
   const delay=text.length>15?1100:700;
   setTimeout(()=>{
@@ -1041,7 +1101,17 @@ function handleInput(text){
       }
       addMsg('ai','没找到要改的记录哦，试试说"午饭改成20"或"把最后一笔改成50" 🤔');return;
     }
-    if(!isRecordIntent(text)){addMsg('ai',smartReply(text));return;}
+    if(!isRecordIntent(text)){
+      // 只说了东西没说钱（「零食，多少钱」）→ 反问金额并记住，别再甩一条本月汇总
+      const missItem=detectMissingAmount(text);
+      if(missItem){
+        const c=classify(missItem);
+        _pendingItem={name:missItem.slice(0,8),cat:c.cat,type:c.type,ts:Date.now()};
+        addMsg('ai',`${CATS[c.cat]?CATS[c.cat].icon:'💰'} <b>${esc(_pendingItem.name)}</b> 花了多少钱？<br>直接回我一个数字就行（<b>15</b>、<b>15.5</b> 都行），我马上记上 😼`);
+        return;
+      }
+      addMsg('ai',smartReply(text));return;
+    }
     const dInfo=parseDateFromText(text);
     const parseText=dInfo?text.replace(dInfo.raw,'').replace(/\s+/g,' ').trim():text;
     const txs=parseMultiTx(parseText);
